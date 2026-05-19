@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Панель администратора</title>
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg: #f4f3ef;
+            --surface: #ffffff;
+            --surface2: #eeede9;
+            --border: rgba(0,0,0,0.1);
+            --border2: rgba(0,0,0,0.15);
+            --text: #1a1a18;
+            --text2: #6b6a65;
+            --accent: #1a4f3a;
+            --accent-light: #e8f2ed;
+            --accent-mid: #2d7a56;
+            --warn-bg: #fff8e6;
+            --warn: #8a6000;
+            --danger-bg: #fdf0f0;
+            --danger: #8b2020;
+            --r: 10px;
+            --r-sm: 6px;
+        }
+
+        body {
+            font-family: system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        nav {
+            background: var(--surface);
+            border-bottom: 0.5px solid var(--border2);
+            padding: 0 2rem;
+            height: 52px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .nav-title {
+            font-weight: 500;
+            font-size: 0.95rem;
+        }
+
+            .nav-title span {
+                color: var(--text2);
+                font-weight: 400;
+            }
+
+        .nav-right {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .nav-link {
+            font-size: 0.825rem;
+            color: var(--text2);
+            text-decoration: none;
+            transition: color 0.15s;
+        }
+
+            .nav-link:hover {
+                color: var(--text);
+            }
+
+            .nav-link.danger {
+                color: var(--danger);
+            }
+
+        main {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem 4rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--surface);
+            border: 0.5px solid var(--border2);
+            border-radius: var(--r);
+            padding: 1rem 1.25rem;
+        }
+
+        .stat-label {
+            font-size: 0.68rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text2);
+            margin-bottom: 6px;
+        }
+
+        .stat-val {
+            font-size: 1.75rem;
+            font-weight: 500;
+            line-height: 1;
+        }
+
+            .stat-val.green {
+                color: var(--accent-mid);
+            }
+
+            .stat-val.yellow {
+                color: var(--warn);
+            }
+
+            .stat-val.red {
+                color: var(--danger);
+            }
+
+        .section-title {
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text2);
+            margin-bottom: 0.75rem;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 0.5px solid var(--border2);
+            border-radius: var(--r);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .upload-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+
+        @media (max-width: 520px) {
+            .upload-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .field label {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text2);
+            margin-bottom: 4px;
+        }
+
+        .field-required label::after {
+            content: ' *';
+            color: var(--danger);
+        }
+
+        input[type="text"], input[type="file"], select {
+            width: 100%;
+            padding: 0.6rem 0.875rem;
+            border: 0.5px solid var(--border2);
+            border-radius: var(--r-sm);
+            background: var(--surface2);
+            color: var(--text);
+            font-size: 0.875rem;
+            font-family: inherit;
+        }
+
+            input:focus, select:focus {
+                outline: none;
+                border-color: var(--accent-mid);
+                box-shadow: 0 0 0 2px rgba(45,122,86,0.1);
+            }
+
+        .upload-note {
+            font-size: 0.78rem;
+            color: var(--text2);
+            margin-bottom: 1rem;
+            background: var(--surface2);
+            padding: 0.6rem 0.875rem;
+            border-radius: var(--r-sm);
+            line-height: 1.6;
+        }
+
+            .upload-note code {
+                font-family: monospace;
+                background: rgba(0,0,0,0.07);
+                padding: 1px 5px;
+                border-radius: 3px;
+                font-size: 0.85em;
+            }
+
+        .btn-upload {
+            padding: 0.65rem 1.5rem;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: var(--r-sm);
+            font-size: 0.875rem;
+            font-family: inherit;
+            font-weight: 500;
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }
+
+            .btn-upload:hover {
+                opacity: 0.85;
+            }
+
+        .last-upload {
+            font-size: 0.78rem;
+            color: var(--text2);
+            margin-top: 0.75rem;
+        }
+
+        .flash {
+            padding: 0.7rem 1rem;
+            border-radius: var(--r-sm);
+            font-size: 0.875rem;
+            margin-bottom: 1rem;
+        }
+
+            .flash.ok {
+                background: var(--accent-light);
+                color: var(--accent-mid);
+                border: 0.5px solid var(--accent-mid);
+            }
+
+            .flash.err {
+                background: var(--danger-bg);
+                color: var(--danger);
+                border: 0.5px solid var(--danger);
+            }
+
+        /* бэкапы */
+        .backup-list {
+            list-style: none;
+        }
+
+        .backup-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 7px 0;
+            border-bottom: 0.5px solid var(--border);
+            font-size: 0.825rem;
+        }
+
+            .backup-item:last-child {
+                border-bottom: none;
+            }
+
+        .backup-name {
+            font-family: monospace;
+            color: var(--text);
+        }
+
+        .backup-size {
+            color: var(--text2);
+            font-size: 0.78rem;
+        }
+
+        .no-backups {
+            font-size: 0.825rem;
+            color: var(--text2);
+        }
+
+        /* логи */
+        .log-toolbar {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+            .log-toolbar input {
+                flex: 1;
+                min-width: 180px;
+                padding: 0.5rem 0.75rem;
+                font-size: 0.825rem;
+            }
+
+        .log-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+        }
+
+        thead tr {
+            border-bottom: 0.5px solid var(--border2);
+        }
+
+        th {
+            text-align: left;
+            padding: 6px 10px;
+            font-size: 0.68rem;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--text2);
+            white-space: nowrap;
+        }
+
+        td {
+            padding: 7px 10px;
+            border-bottom: 0.5px solid var(--border);
+            vertical-align: top;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: var(--surface2);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 99px;
+            font-size: 0.7rem;
+            font-weight: 500;
+        }
+
+            .badge.found {
+                background: var(--accent-light);
+                color: var(--accent-mid);
+            }
+
+            .badge.ambiguous {
+                background: var(--warn-bg);
+                color: var(--warn);
+            }
+
+            .badge.not_found {
+                background: var(--danger-bg);
+                color: var(--danger);
+            }
+
+        .ua-short {
+            max-width: 160px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--text2);
+            font-size: 0.75rem;
+        }
+
+        .fios-cell {
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--text2);
+        }
+
+        .empty-log {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text2);
+            font-size: 0.875rem;
+        }
+
+        #log-count {
+            font-size: 0.78rem;
+            color: var(--text2);
+            margin-bottom: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+
+    <nav>
+        <span class="nav-title">Реестр <span>/ Администратор</span></span>
+        <div class="nav-right">
+            <a href="/" class="nav-link" target="_blank">↗ Открыть сайт</a>
+            <a href="/admin/logout" class="nav-link danger">Выйти</a>
+        </div>
+    </nav>
+
+    <main>
+
+        {% set uploaded = request.query_params.get('uploaded') %}
+        {% set error    = request.query_params.get('error') %}
+
+        {% if uploaded %}
+        <div class="flash ok">✓ Загружено записей: {{ uploaded }}</div>
+        {% endif %}
+
+        {% if error == 'col_fio_not_found' %}
+        <div class="flash err">Столбец ФИО не найден в файле. Проверьте название.</div>
+        {% elif error == 'empty' %}
+        <div class="flash err">Файл пустой или не содержит данных.</div>
+        {% elif error == 'read_error' %}
+        <div class="flash err">Не удалось прочитать файл. Убедитесь что это .xlsx файл.</div>
+        {% elif error == 'import_failed' %}
+        <div class="flash err">Ошибка при импорте — база не изменена. Проверьте файл и попробуйте снова.</div>
+        {% endif %}
+
+        <!-- статистика -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Записей в базе</div>
+                <div class="stat-val green">{{ total }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Активировано</div>
+                <div class="stat-val">{{ active }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Запросов сегодня</div>
+                <div class="stat-val">{{ today_count }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Не найдено (всего)</div>
+                <div class="stat-val red">{{ not_found_count }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Неточных запросов</div>
+                <div class="stat-val yellow">{{ ambiguous_count }}</div>
+            </div>
+        </div>
+
+        <!-- загрузка -->
+        <div class="section-title">Загрузка данных</div>
+        <div class="card">
+            <div class="upload-note">
+                Укажите точные названия столбцов из Excel-файла (первая строка — заголовки).<br>
+                Например: <code>ФИО</code>, <code>Номер сертификата</code>, <code>Номер заявки</code>, <code>Статус</code>
+            </div>
+
+            <form method="post" action="/admin/upload" enctype="multipart/form-data">
+                <div class="upload-grid">
+                    <div class="field field-required">
+                        <label>Столбец ФИО</label>
+                        <input type="text" name="col_fio" value="{{ col_fio }}" placeholder="ФИО" required>
+                    </div>
+                    <div class="field field-required">
+                        <label>Номер сертификата</label>
+                        <input type="text" name="col_cert" value="{{ col_cert }}" placeholder="Номер сертификата" required>
+                    </div>
+                    <div class="field field-required">
+                        <label>Номер заявки</label>
+                        <input type="text" name="col_app" value="{{ col_app }}" placeholder="Номер заявки" required>
+                    </div>
+                    <div class="field">
+                        <label>Статус (необязательно)</label>
+                        <input type="text" name="col_stat" value="{{ col_stat }}" placeholder="Статус">
+                    </div>
+                </div>
+
+                <div class="upload-grid" style="margin-bottom:1rem">
+                    <div class="field field-required">
+                        <label>Excel-файл (.xlsx)</label>
+                        <input type="file" name="file" accept=".xlsx,.xls" required>
+                    </div>
+                    <div class="field">
+                        <label>Режим загрузки</label>
+                        <select name="replace">
+                            <option value="yes">Заменить всю базу (с бэкапом)</option>
+                            <option value="no">Добавить к существующим</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-upload">Загрузить файл</button>
+            </form>
+
+            <div class="last-upload">
+                Последняя загрузка: <strong>{{ last_up }}</strong>
+                {% if last_fn and last_fn != '—' %} — {{ last_fn }}{% endif %}
+            </div>
+        </div>
+
+        <!-- бэкапы -->
+        <div class="section-title">Резервные копии базы</div>
+        <div class="card">
+            {% if backup_list %}
+            <ul class="backup-list">
+                {% for b in backup_list %}
+                <li class="backup-item">
+                    <span class="backup-name">{{ b.name }}</span>
+                    <span class="backup-size">{{ b.size }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            <p style="font-size:0.75rem;color:var(--text2);margin-top:0.75rem">
+                Хранятся последние 10 копий · папка <code>backups/</code> на сервере
+            </p>
+            {% else %}
+            <p class="no-backups">Резервных копий пока нет — они создаются автоматически при каждой замене базы.</p>
+            {% endif %}
+        </div>
+
+        <!-- логи -->
+        <div class="section-title">Журнал запросов</div>
+        <div class="card">
+            <div class="log-toolbar">
+                <input type="text" id="log-filter"
+                       placeholder="Фильтр по ФИО, IP, запросу..." oninput="filterLogs()">
+            </div>
+            <div id="log-count"></div>
+
+            <div class="log-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Время (UTC)</th>
+                            <th>IP</th>
+                            <th>Запрос</th>
+                            <th>Результат</th>
+                            <th>Найденные записи</th>
+                            <th>Браузер</th>
+                        </tr>
+                    </thead>
+                    <tbody id="log-body">
+                        {% if logs %}
+                        {% for row in logs %}
+                        <tr>
+                            <td style="white-space:nowrap;color:var(--text2)">{{ row.ts }}</td>
+                            <td style="font-family:monospace;font-size:0.75rem">{{ row.ip }}</td>
+                            <td><strong>{{ row.query }}</strong></td>
+                            <td>
+                                {% if row.result_type == 'found' %}
+                                <span class="badge found">Найден</span>
+                                {% elif row.result_type == 'ambiguous' %}
+                                <span class="badge ambiguous">Неточно ({{ row.results_count }})</span>
+                                {% else %}
+                                <span class="badge not_found">Не найден</span>
+                                {% endif %}
+                            </td>
+                            <td class="fios-cell" title="{{ row.found_fios or '' }}">
+                                {{ row.found_fios or '—' }}
+                            </td>
+                            <td class="ua-short" title="{{ row.user_agent }}">
+                                {{ row.user_agent or '—' }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr><td colspan="6" class="empty-log">Запросов пока нет</td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        function filterLogs() {
+            const q = document.getElementById('log-filter').value.toLowerCase();
+            const rows = document.querySelectorAll('#log-body tr');
+            let visible = 0;
+            rows.forEach(tr => {
+                const show = !q || tr.textContent.toLowerCase().includes(q);
+                tr.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+            document.getElementById('log-count').textContent =
+                q ? `Показано: ${visible} из ${rows.length}` : `Всего записей: ${rows.length}`;
+        }
+        filterLogs();
+    </script>
+</body>
+</html>

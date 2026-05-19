@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Реестр сертификатов</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #f4f3ef;
+  --surface: #ffffff;
+  --surface2: #eeede9;
+  --border2: rgba(0,0,0,0.16);
+  --text: #1a1a18;
+  --text2: #6b6a65;
+  --accent: #1a4f3a;
+  --accent-light: #e8f2ed;
+  --accent-mid: #2d7a56;
+  --frozen-bg: #fff8e6;
+  --frozen: #8a6000;
+  --inactive-bg: #f5f0f0;
+  --inactive: #7a3030;
+  --warn-bg: #fff8e6;
+  --warn: #7a5c00;
+  --err-bg: #fdf0f0;
+  --err: #8b2020;
+  --r: 10px;
+  --r-sm: 6px;
+}
+
+body {
+  font-family: Georgia, serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem 4rem;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+header h1 {
+  font-size: clamp(1.3rem, 3vw, 1.8rem);
+  font-weight: normal;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.35rem;
+}
+
+header p {
+  font-size: 0.875rem;
+  color: var(--text2);
+  font-family: system-ui, sans-serif;
+}
+
+.card {
+  background: var(--surface);
+  border: 0.5px solid var(--border2);
+  border-radius: var(--r);
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 480px;
+}
+
+.search-row { display: flex; gap: 0.5rem; }
+
+input[type="text"] {
+  flex: 1;
+  padding: 0.7rem 1rem;
+  border: 0.5px solid var(--border2);
+  border-radius: var(--r-sm);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 1rem;
+  font-family: Georgia, serif;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent-mid);
+  box-shadow: 0 0 0 3px rgba(45,122,86,0.12);
+}
+
+input::placeholder { color: var(--text2); opacity: 0.6; }
+
+button {
+  padding: 0.7rem 1.4rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--r-sm);
+  font-size: 0.875rem;
+  font-family: system-ui, sans-serif;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 0.15s;
+}
+
+button:hover { opacity: 0.85; }
+button:active { opacity: 0.7; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.hint {
+  margin-top: 0.5rem;
+  font-family: system-ui, sans-serif;
+  font-size: 0.78rem;
+  color: var(--text2);
+}
+
+/* спиннер */
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* результат */
+#result-area {
+  width: 100%;
+  max-width: 480px;
+  margin-top: 0.875rem;
+}
+
+.result-box {
+  background: var(--surface);
+  border: 0.5px solid var(--border2);
+  border-radius: var(--r);
+  padding: 1.5rem;
+  animation: fadeUp 0.18s ease both;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.result-label {
+  font-family: system-ui, sans-serif;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text2);
+  margin-bottom: 5px;
+}
+
+.result-value {
+  font-family: 'Courier New', monospace;
+  font-size: 1.05rem;
+  color: var(--accent-mid);
+  background: var(--accent-light);
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  display: inline-block;
+  cursor: pointer;
+  user-select: all;
+  transition: opacity 0.1s;
+}
+
+.result-value:hover { opacity: 0.75; }
+
+.result-value.empty {
+  font-family: system-ui, sans-serif;
+  font-size: 0.875rem;
+  color: var(--text2);
+  background: var(--surface2);
+  cursor: default;
+}
+
+.divider {
+  border: none;
+  border-top: 0.5px solid rgba(0,0,0,0.08);
+  margin: 1rem 0;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: system-ui, sans-serif;
+  font-size: 0.825rem;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 99px;
+}
+
+.status-badge.active   { background: var(--accent-light); color: var(--accent-mid); }
+.status-badge.frozen   { background: var(--frozen-bg);    color: var(--frozen); }
+.status-badge.inactive { background: var(--inactive-bg);  color: var(--inactive); }
+
+.copy-hint {
+  font-family: system-ui, sans-serif;
+  font-size: 0.71rem;
+  color: var(--text2);
+  margin-top: 1rem;
+}
+
+/* сообщения */
+.msg {
+  padding: 1rem 1.25rem;
+  border-radius: var(--r);
+  font-family: system-ui, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  animation: fadeUp 0.15s ease both;
+}
+
+.msg strong { display: block; margin-bottom: 3px; font-weight: 600; }
+.msg.warn  { background: var(--warn-bg);  color: var(--warn);  border: 0.5px solid var(--warn); }
+.msg.error { background: var(--err-bg);   color: var(--err);   border: 0.5px solid var(--err); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Реестр сертификатов</h1>
+  <p>Введите ФИО для получения информации о сертификате</p>
+</header>
+
+<div class="card">
+  <div class="search-row">
+    <input type="text" id="fio" placeholder="Иванов Иван Иванович"
+           autocomplete="off" spellcheck="false" maxlength="200">
+    <button id="btn" onclick="doSearch()">
+      <span id="btn-text">Найти</span>
+      <span class="spinner" id="spinner"></span>
+    </button>
+  </div>
+  <p class="hint">Для точного результата введите фамилию, имя и отчество</p>
+</div>
+
+<div id="result-area"></div>
+
+<script>
+const fioInput  = document.getElementById('fio');
+const btn       = document.getElementById('btn');
+const btnText   = document.getElementById('btn-text');
+const spinner   = document.getElementById('spinner');
+const resultArea = document.getElementById('result-area');
+
+fioInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+fioInput.focus();
+
+async function doSearch() {
+  const fio = fioInput.value.trim();
+  if (!fio) { fioInput.focus(); return; }
+
+  btn.disabled = true;
+  btnText.style.display = 'none';
+  spinner.style.display = 'block';
+  resultArea.innerHTML = '';
+
+  try {
+    const fd = new FormData();
+    fd.append('fio', fio);
+    const resp = await fetch('/search', { method: 'POST', body: fd });
+    const data = await resp.json();
+
+    if (!resp.ok || data.error === 'server_error') {
+      showMsg('error',
+        'Произошла ошибка',
+        'Пожалуйста, обратитесь к администратору.'
+      );
+      return;
+    }
+
+    if (data.type === 'not_found') {
+      showMsg('error',
+        'Данные не найдены',
+        'Проверьте правильность написания ФИО или обратитесь к администратору.'
+      );
+      return;
+    }
+
+    if (data.type === 'ambiguous') {
+      showMsg('warn',
+        'Найдено несколько записей',
+        'Пожалуйста, уточните запрос — введите фамилию, имя и отчество полностью.'
+      );
+      return;
+    }
+
+    // type === 'found' — показываем только данные, без ФИО
+    const certEmpty = data.cert === '—';
+    const appEmpty  = data.app  === '—';
+
+    const box = document.createElement('div');
+    box.className = 'result-box';
+    box.innerHTML = `
+      <div class="result-label">Номер сертификата</div>
+      <div style="margin-bottom:1rem">
+        <span class="result-value${certEmpty ? ' empty' : ''}"
+          ${certEmpty ? '' : `onclick="copyVal(this,'${esc(data.cert)}')" title="Нажмите, чтобы скопировать"`}>
+          ${esc(data.cert)}
+        </span>
+      </div>
+
+      <div class="result-label">Номер заявки</div>
+      <div style="margin-bottom:1rem">
+        <span class="result-value${appEmpty ? ' empty' : ''}"
+          ${appEmpty ? '' : `onclick="copyVal(this,'${esc(data.app)}')" title="Нажмите, чтобы скопировать"`}>
+          ${esc(data.app)}
+        </span>
+      </div>
+
+      <hr class="divider">
+
+      <div class="result-label">Статус</div>
+      <span class="status-badge ${esc(data.status_style)}">● ${esc(data.status)}</span>
+
+      ${!certEmpty || !appEmpty
+        ? '<p class="copy-hint">Нажмите на номер, чтобы скопировать</p>'
+        : ''}
+    `;
+    resultArea.appendChild(box);
+
+  } catch {
+    showMsg('error',
+      'Ошибка соединения',
+      'Не удалось связаться с сервером. Попробуйте позже или обратитесь к администратору.'
+    );
+  } finally {
+    btn.disabled = false;
+    btnText.style.display = '';
+    spinner.style.display = 'none';
+  }
+}
+
+function copyVal(el, val) {
+  navigator.clipboard.writeText(val).then(() => {
+    const orig = el.textContent.trim();
+    el.textContent = '✓ Скопировано';
+    setTimeout(() => el.textContent = orig, 1400);
+  });
+}
+
+function showMsg(type, title, text) {
+  const d = document.createElement('div');
+  d.className = `msg ${type}`;
+  d.innerHTML = `<strong>${esc(title)}</strong>${esc(text)}`;
+  resultArea.appendChild(d);
+}
+
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+</script>
+</body>
+</html>
