@@ -1,4 +1,4 @@
-import os, sqlite3, secrets, io, shutil
+import os, sqlite3, secrets, io, csv, re, shutil
 from pathlib import Path
 from functools import wraps
 from datetime import datetime
@@ -44,6 +44,7 @@ def init_db():
                 fio_norm    TEXT NOT NULL,
                 cert_number TEXT,
                 app_number  TEXT,
+                birth_date  TEXT,
                 status      TEXT DEFAULT 'Не активирован',
                 updated_at  TEXT
             );
@@ -70,6 +71,10 @@ def init_db():
                 created_at TEXT
             );
         """)
+        # миграция для баз, созданных до появления поля "дата рождения"
+        cols = [r["name"] for r in db.execute("PRAGMA table_info(records)").fetchall()]
+        if "birth_date" not in cols:
+            db.execute("ALTER TABLE records ADD COLUMN birth_date TEXT")
 
 init_db()
 
@@ -89,6 +94,11 @@ def backup_db():
 # ── утилиты ───────────────────────────────────────────────────────────────────
 def normalize(s: str) -> str:
     return " ".join(str(s).lower().split())
+
+def digits_only(s: str) -> str:
+    """Оставляет только цифры — чтобы сравнивать дату рождения
+    независимо от разделителей (01.02.2010 / 01-02-2010 / 01 02 2010)."""
+    return re.sub(r"\D", "", s or "")
 
 def status_style(status: str) -> str:
     s = (status or "").lower()
@@ -144,8 +154,9 @@ async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/search", response_class=JSONResponse)
-async def search(request: Request, fio: str = Form("")):
-    fio = fio.strip()
+async def search(request: Request, fio: str = Form(""), birth: str = Form("")):
+    fio   = fio.strip()
+    birth = birth.strip()
     if len(fio) < 2:
         return JSONResponse({"error": "Введите не менее 2 символов"}, status_code=400)
 
@@ -157,12 +168,18 @@ async def search(request: Request, fio: str = Form("")):
     try:
         with get_db() as db:
             rows = db.execute(
-                "SELECT fio, cert_number, app_number, status "
+                "SELECT fio, cert_number, app_number, birth_date, status "
                 "FROM records WHERE fio_norm LIKE ?",
                 (f"%{query}%",)
             ).fetchall()
     except Exception:
         return JSONResponse({"error": "server_error"}, status_code=500)
+
+    # если указана дата рождения — сужаем совпадения по ней
+    # (сравниваем только цифры, не завязываясь на формат разделителей)
+    birth_digits = digits_only(birth)
+    if birth_digits:
+        rows = [r for r in rows if digits_only(r["birth_date"]) == birth_digits]
 
     count = len(rows)
 
@@ -174,13 +191,14 @@ async def search(request: Request, fio: str = Form("")):
         result_type = "ambiguous"
 
     found_fios = [r["fio"] for r in rows]
+    log_query  = f"{fio} | ДР: {birth}" if birth else fio
 
     with get_db() as db:
         db.execute(
             "INSERT INTO search_log"
             "(ts, ip, user_agent, query, result_type, results_count, found_fios) "
             "VALUES(?,?,?,?,?,?,?)",
-            (ts, ip, ua, fio, result_type, count, "; ".join(found_fios) or None)
+            (ts, ip, ua, log_query, result_type, count, "; ".join(found_fios) or None)
         )
 
     if count == 0:
@@ -194,6 +212,7 @@ async def search(request: Request, fio: str = Form("")):
         "type":         "found",
         "cert":         r["cert_number"] or "—",
         "app":          r["app_number"]  or "—",
+        "birth":        r["birth_date"]  or "—",
         "status":       r["status"]      or "Не активирован",
         "status_style": status_style(r["status"] or ""),
     })
@@ -281,27 +300,61 @@ async def admin_panel(request: Request):
         "col_fio":         get_setting("col_fio",  ""),
         "col_cert":        get_setting("col_cert", ""),
         "col_app":         get_setting("col_app",  ""),
+        "col_birth":       get_setting("col_birth", ""),
         "col_stat":        get_setting("col_stat", ""),
         "backup_list":     backup_list,
     })
 
-# ── загрузка Excel ────────────────────────────────────────────────────────────
+# ── разбор загруженного файла (xlsx или csv) ───────────────────────────────────
+def parse_xlsx_rows(content: bytes):
+    wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    ws = wb.active
+    return list(ws.iter_rows(values_only=True))
+
+def parse_csv_rows(content: bytes):
+    # пробуем несколько кодировок — экспорт из 1С/Excel часто в cp1251
+    text = None
+    for enc in ("utf-8-sig", "cp1251", "utf-8"):
+        try:
+            text = content.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        text = content.decode("utf-8", errors="replace")
+
+    # определяем разделитель (запятая или точка с запятой — частый случай в RU-локали)
+    sample = text[:2048]
+    try:
+        delimiter = csv.Sniffer().sniff(sample, delimiters=";,\t").delimiter
+    except csv.Error:
+        delimiter = ";" if sample.count(";") > sample.count(",") else ","
+
+    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+    return [tuple(row) for row in reader]
+
+def parse_upload_rows(content: bytes, filename: str):
+    ext = Path(filename or "").suffix.lower()
+    if ext == ".csv":
+        return parse_csv_rows(content)
+    return parse_xlsx_rows(content)  # .xlsx / .xls / неизвестное — пробуем как Excel
+
+# ── загрузка Excel/CSV ──────────────────────────────────────────────────────────
 @app.post("/admin/upload", response_class=HTMLResponse)
 @admin_required
 async def admin_upload(
-    request:  Request,
-    file:     UploadFile = File(...),
-    col_fio:  str = Form(""),
-    col_cert: str = Form(""),
-    col_app:  str = Form(""),
-    col_stat: str = Form(""),
-    replace:  str = Form("yes"),
+    request:   Request,
+    file:      UploadFile = File(...),
+    col_fio:   str = Form(""),
+    col_cert:  str = Form(""),
+    col_app:   str = Form(""),
+    col_birth: str = Form(""),
+    col_stat:  str = Form(""),
+    replace:   str = Form("yes"),
 ):
     content = await file.read()
     try:
-        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
-        ws = wb.active
-        rows = list(ws.iter_rows(values_only=True))
+        rows = parse_upload_rows(content, file.filename)
     except Exception:
         return RedirectResponse("/admin?error=read_error", status_code=302)
 
@@ -327,10 +380,11 @@ async def admin_upload(
                 return i
         return None
 
-    idx_fio  = col_index(col_fio)
-    idx_cert = col_index(col_cert)
-    idx_app  = col_index(col_app)
-    idx_stat = col_index(col_stat)
+    idx_fio   = col_index(col_fio)
+    idx_cert  = col_index(col_cert)
+    idx_app   = col_index(col_app)
+    idx_birth = col_index(col_birth)
+    idx_stat  = col_index(col_stat)
 
     if idx_fio is None:
         return RedirectResponse("/admin?error=col_fio_not_found", status_code=302)
@@ -352,6 +406,7 @@ async def admin_upload(
             normalize(fio),
             cell(row, idx_cert),
             cell(row, idx_app),
+            cell(row, idx_birth),
             cell(row, idx_stat) or "Не активирован",
             datetime.utcnow().isoformat(sep=" ", timespec="seconds"),
         ))
@@ -370,8 +425,8 @@ async def admin_upload(
             conn.execute("DELETE FROM records")
         conn.executemany(
             "INSERT INTO records"
-            "(fio, fio_norm, cert_number, app_number, status, updated_at) "
-            "VALUES(?,?,?,?,?,?)",
+            "(fio, fio_norm, cert_number, app_number, birth_date, status, updated_at) "
+            "VALUES(?,?,?,?,?,?,?)",
             to_insert
         )
         conn.execute("COMMIT")
@@ -385,6 +440,7 @@ async def admin_upload(
     set_setting("col_fio",       col_fio)
     set_setting("col_cert",      col_cert)
     set_setting("col_app",       col_app)
+    set_setting("col_birth",     col_birth)
     set_setting("col_stat",      col_stat)
     set_setting("last_upload",   datetime.utcnow().isoformat(sep=" ", timespec="seconds"))
     set_setting("last_filename", file.filename or "")

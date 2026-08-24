@@ -442,8 +442,9 @@
         <div class="section-title">Загрузка данных</div>
         <div class="card">
             <div class="upload-note">
-                Укажите точные названия столбцов из Excel-файла (первая строка — заголовки).<br>
-                Например: <code>ФИО</code>, <code>Номер сертификата</code>, <code>Номер заявки</code>, <code>Статус</code>
+                Укажите точные названия столбцов из файла (первая строка — заголовки).<br>
+                Например: <code>ФИО</code>, <code>Номер сертификата</code>, <code>Номер заявки</code>, <code>Дата рождения</code>, <code>Статус</code>.
+                Поддерживаются файлы <code>.xlsx</code> и <code>.csv</code>.
             </div>
 
             <form method="post" action="/admin/upload" enctype="multipart/form-data">
@@ -461,6 +462,10 @@
                         <input type="text" name="col_app" value="{{ col_app }}" placeholder="Номер заявки" required>
                     </div>
                     <div class="field">
+                        <label>Дата рождения (необязательно)</label>
+                        <input type="text" name="col_birth" value="{{ col_birth }}" placeholder="Дата рождения">
+                    </div>
+                    <div class="field">
                         <label>Статус (необязательно)</label>
                         <input type="text" name="col_stat" value="{{ col_stat }}" placeholder="Статус">
                     </div>
@@ -468,8 +473,8 @@
 
                 <div class="upload-grid" style="margin-bottom:1rem">
                     <div class="field field-required">
-                        <label>Excel-файл (.xlsx)</label>
-                        <input type="file" name="file" accept=".xlsx,.xls" required>
+                        <label>Файл (.xlsx или .csv)</label>
+                        <input type="file" name="file" accept=".xlsx,.xls,.csv" required>
                     </div>
                     <div class="field">
                         <label>Режим загрузки</label>

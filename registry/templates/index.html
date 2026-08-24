@@ -90,6 +90,27 @@ input[type="text"]:focus {
 
 input::placeholder { color: var(--text2); opacity: 0.6; }
 
+.birth-input {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.6rem 1rem;
+  border: 0.5px solid var(--border2);
+  border-radius: var(--r-sm);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: 'Courier New', monospace;
+  letter-spacing: 0.03em;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.birth-input:focus {
+  outline: none;
+  border-color: var(--accent-mid);
+  box-shadow: 0 0 0 3px rgba(45,122,86,0.12);
+}
+
 button {
   padding: 0.7rem 1.4rem;
   background: var(--accent);
@@ -174,7 +195,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .result-value:hover { opacity: 0.75; }
 
-.result-value.empty {
+.result-value.empty,
+.result-value.static {
   font-family: system-ui, sans-serif;
   font-size: 0.875rem;
   color: var(--text2);
@@ -202,6 +224,28 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .status-badge.active   { background: var(--accent-light); color: var(--accent-mid); }
 .status-badge.frozen   { background: var(--frozen-bg);    color: var(--frozen); }
 .status-badge.inactive { background: var(--inactive-bg);  color: var(--inactive); }
+
+/* перекраска всей карточки результата, если заявка не подтверждена
+   (статус отличен от "Активирован") */
+.result-box.frozen {
+  background: var(--frozen-bg);
+  border-color: var(--frozen);
+}
+
+.result-box.inactive {
+  background: var(--inactive-bg);
+  border-color: var(--inactive);
+}
+
+.result-box.frozen .result-value:not(.empty) {
+  color: var(--frozen);
+  background: rgba(138,96,0,0.09);
+}
+
+.result-box.inactive .result-value:not(.empty) {
+  color: var(--inactive);
+  background: rgba(122,48,48,0.09);
+}
 
 .copy-hint {
   font-family: system-ui, sans-serif;
@@ -241,13 +285,19 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
       <span class="spinner" id="spinner"></span>
     </button>
   </div>
-  <p class="hint">Для точного результата введите фамилию, имя и отчество</p>
+
+  <input type="text" id="birth" class="birth-input" placeholder="Дата рождения: ДД.ММ.ГГГГ"
+         inputmode="numeric" autocomplete="off" maxlength="10">
+
+  <p class="hint">Для точного результата введите фамилию, имя и отчество.
+    Дата рождения — необязательно, поможет уточнить, если найдено несколько совпадений.</p>
 </div>
 
 <div id="result-area"></div>
 
 <script>
 const fioInput  = document.getElementById('fio');
+const birthInput = document.getElementById('birth');
 const btn       = document.getElementById('btn');
 const btnText   = document.getElementById('btn-text');
 const spinner   = document.getElementById('spinner');
@@ -255,6 +305,16 @@ const resultArea = document.getElementById('result-area');
 
 fioInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
 fioInput.focus();
+
+// автоформатирование даты рождения по мере ввода: 01021990 → 01.02.1990
+birthInput.addEventListener('input', () => {
+  const digits = birthInput.value.replace(/\D/g, '').slice(0, 8);
+  let out = digits;
+  if (digits.length > 4)      out = `${digits.slice(0,2)}.${digits.slice(2,4)}.${digits.slice(4)}`;
+  else if (digits.length > 2) out = `${digits.slice(0,2)}.${digits.slice(2)}`;
+  birthInput.value = out;
+});
+birthInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
 
 async function doSearch() {
   const fio = fioInput.value.trim();
@@ -268,6 +328,7 @@ async function doSearch() {
   try {
     const fd = new FormData();
     fd.append('fio', fio);
+    fd.append('birth', birthInput.value.trim());
     const resp = await fetch('/search', { method: 'POST', body: fd });
     const data = await resp.json();
 
@@ -290,7 +351,7 @@ async function doSearch() {
     if (data.type === 'ambiguous') {
       showMsg('warn',
         'Найдено несколько записей',
-        'Пожалуйста, уточните запрос — введите фамилию, имя и отчество полностью.'
+        'Пожалуйста, уточните запрос — введите фамилию, имя и отчество полностью, либо укажите дату рождения.'
       );
       return;
     }
@@ -299,8 +360,11 @@ async function doSearch() {
     const certEmpty = data.cert === '—';
     const appEmpty  = data.app  === '—';
 
+    const birthEmpty = !data.birth || data.birth === '—';
+
     const box = document.createElement('div');
-    box.className = 'result-box';
+    // если заявка не подтверждена (статус не "Активирован") — перекрашиваем всю карточку
+    box.className = `result-box ${esc(data.status_style)}`;
     box.innerHTML = `
       <div class="result-label">Номер сертификата</div>
       <div style="margin-bottom:1rem">
@@ -317,6 +381,12 @@ async function doSearch() {
           ${esc(data.app)}
         </span>
       </div>
+
+      ${!birthEmpty ? `
+      <div class="result-label">Дата рождения</div>
+      <div style="margin-bottom:1rem">
+        <span class="result-value static">${esc(data.birth)}</span>
+      </div>` : ''}
 
       <hr class="divider">
 
