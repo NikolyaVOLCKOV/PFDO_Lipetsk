@@ -101,11 +101,14 @@ def digits_only(s: str) -> str:
     return re.sub(r"\D", "", s or "")
 
 def status_style(status: str) -> str:
-    s = (status or "").lower()
-    if "актив" in s:
-        return "active"
+    s = (status or "").strip().lower()
+    # отрицание — в первую очередь: "Не активирован", "Не подтверждена"
+    if s.startswith("не "):
+        return "inactive"
     if "заморо" in s:
         return "frozen"
+    if "актив" in s or "подтвержд" in s:
+        return "active"
     return "inactive"
 
 def get_client_ip(request: Request) -> str:
@@ -393,7 +396,13 @@ async def admin_upload(
         if idx is None or idx >= len(row):
             return ""
         v = row[idx]
-        return str(v).strip() if v is not None else ""
+        v = str(v).strip() if v is not None else ""
+        # снять обёртку вида ="..." — артефакт Excel/CSV,
+        # которым сохраняют текст с ведущими нулями (например номера сертификатов)
+        m = re.match(r'^="(.*)"$', v)
+        if m:
+            v = m.group(1)
+        return v
 
     # ── собираем записи из файла ДО изменения базы ──
     to_insert = []
