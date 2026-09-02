@@ -414,6 +414,12 @@
         <div class="flash err">Не удалось прочитать файл. Убедитесь что это .xlsx файл.</div>
         {% elif error == 'import_failed' %}
         <div class="flash err">Ошибка при импорте — база не изменена. Проверьте файл и попробуйте снова.</div>
+        {% elif error == 'sync_no_token' %}
+        <div class="flash err">Введите Bearer-токен для синхронизации с API.</div>
+        {% elif error == 'sync_auth' %}
+        <div class="flash err">Портал не принял токен (401/403) — проверьте, что скопировали его целиком и что он ещё не истёк.</div>
+        {% elif error == 'sync_failed' %}
+        <div class="flash err">Не удалось связаться с API портала — проверьте сеть или попробуйте позже.</div>
         {% endif %}
 
         <!-- статистика -->
@@ -496,6 +502,40 @@
             </div>
         </div>
 
+        <!-- синхронизация из API -->
+        <div class="section-title">Обновить из API портала ПФДО</div>
+        <div class="card">
+            <div class="upload-note">
+                Токен нигде не сохраняется — вводится заново перед каждой синхронизацией.
+                Взять его: в браузере на портале ПФДО открыть DevTools → Network → любой запрос к <code>/api/v1/...</code> →
+                вкладка Headers → скопировать значение заголовка <code>Authorization</code> целиком (со словом <code>Bearer</code>).<br>
+                Синхронизация сводит вместе данные <code>/certificates</code> и <code>/request</code> и может занять
+                какое-то время в зависимости от объёма данных — не закрывай вкладку до завершения.
+            </div>
+
+            <form method="post" action="/admin/sync-api">
+                <div class="upload-grid">
+                    <div class="field field-required" style="grid-column: 1 / -1">
+                        <label>Bearer-токен</label>
+                        <input type="password" name="api_token" placeholder="Bearer eyJ0eXAiOiJKV1Qi..." required autocomplete="off">
+                    </div>
+                    <div class="field">
+                        <label>Код муниципалитета</label>
+                        <input type="text" name="mun_id" value="02" placeholder="02">
+                    </div>
+                    <div class="field">
+                        <label>Режим загрузки</label>
+                        <select name="replace">
+                            <option value="yes">Заменить всю базу (с бэкапом)</option>
+                            <option value="no">Добавить к существующим</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-upload">Обновить из API</button>
+            </form>
+        </div>
+
         <!-- бэкапы -->
         <div class="section-title">Резервные копии базы</div>
         <div class="card">
@@ -503,7 +543,7 @@
             <ul class="backup-list">
                 {% for b in backup_list %}
                 <li class="backup-item">
-                    <span class="backup-name">{{ b.name }}</span>
+                    <span class="backup-name">{{ b.time_msk }} <small style="color:var(--text2)">({{ b.name }})</small></span>
                     <span class="backup-size">{{ b.size }}</span>
                 </li>
                 {% endfor %}
@@ -529,7 +569,7 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>Время (UTC)</th>
+                            <th>Время (МСК)</th>
                             <th>IP</th>
                             <th>Запрос</th>
                             <th>Результат</th>

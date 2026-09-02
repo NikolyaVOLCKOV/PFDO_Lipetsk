@@ -1,8 +1,8 @@
-import os, sqlite3, secrets, io, csv, re, shutil
+import os, sqlite3, secrets, io, csv, re, shutil, asyncio
 from pathlib import Path
 from urllib.parse import quote
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Request, Form, File, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 import openpyxl
+import httpx
 
 # ── конфиг ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent
@@ -118,7 +119,23 @@ def get_client_ip(request: Request) -> str:
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         return forwarded.split(",")[0].strip()
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
     return request.client.host if request.client else "unknown"
+
+MSK_OFFSET = timedelta(hours=3)
+
+def to_msk(ts: str) -> str:
+    """Конвертирует хранимую в БД UTC-строку в московское время (UTC+3) для отображения.
+    В базе всё по-прежнему хранится в UTC — меняется только то, что видит админ."""
+    if not ts or ts == "—":
+        return ts
+    try:
+        dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+        return (dt + MSK_OFFSET).strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return ts
 
 def get_session_token(request: Request):
     return request.cookies.get("admin_token")
@@ -298,10 +315,24 @@ async def admin_panel(request: Request):
 
     # список бэкапов
     backups = sorted(BACKUP_DIR.glob("registry_*.db"), reverse=True)
-    backup_list = [
-        {"name": b.name, "size": f"{b.stat().st_size // 1024} КБ"}
-        for b in backups[:10]
-    ]
+    backup_list = []
+    for b in backups[:10]:
+        # имя файла — registry_YYYYMMDD_HHMMSS.db, метка времени в UTC;
+        # для админки показываем её в МСК, само имя файла не трогаем
+        m = re.match(r"registry_(\d{8})_(\d{6})\.db$", b.name)
+        if m:
+            try:
+                dt_utc = datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S")
+                time_msk = (dt_utc + MSK_OFFSET).strftime("%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                time_msk = b.name
+        else:
+            time_msk = b.name
+        backup_list.append({
+            "name":      b.name,
+            "size":      f"{b.stat().st_size // 1024} КБ",
+            "time_msk":  time_msk,
+        })
 
     return templates.TemplateResponse("admin.html", {
         "request":         request,
@@ -310,8 +341,8 @@ async def admin_panel(request: Request):
         "today_count":     today_count,
         "not_found_count": not_found_count,
         "ambiguous_count": ambiguous_count,
-        "logs":            [dict(r) for r in logs],
-        "last_up":         get_setting("last_upload",   "—"),
+        "logs":            [{**dict(r), "ts": to_msk(r["ts"])} for r in logs],
+        "last_up":         to_msk(get_setting("last_upload", "—")),
         "last_fn":         get_setting("last_filename", "—"),
         "col_fio":         get_setting("col_fio",  ""),
         "col_cert":        get_setting("col_cert", ""),
@@ -453,14 +484,32 @@ async def admin_upload(
     if not to_insert:
         return RedirectResponse("/admin?error=empty", status_code=302)
 
-    # ── бэкап + запись в транзакции ──
-    if replace == "yes":
+    try:
+        count = replace_or_add_records(to_insert, replace == "yes")
+    except Exception:
+        return RedirectResponse("/admin?error=import_failed", status_code=302)
+
+    set_setting("col_fio",       col_fio)
+    set_setting("col_cert",      col_cert)
+    set_setting("col_app",       col_app)
+    set_setting("col_birth",     col_birth)
+    set_setting("col_stat",      col_stat)
+    set_setting("last_upload",   datetime.utcnow().isoformat(sep=" ", timespec="seconds"))
+    set_setting("last_filename", file.filename or "")
+
+    return RedirectResponse(f"/admin?uploaded={count}", status_code=302)
+
+
+def replace_or_add_records(to_insert: list, replace: bool) -> int:
+    """Общая логика записи в БД для загрузки файла и синхронизации из API:
+    бэкап (если полная замена) + вставка в транзакции."""
+    if replace:
         backup_db()
 
     conn = sqlite3.connect(DB_PATH)
     try:
         conn.execute("BEGIN")
-        if replace == "yes":
+        if replace:
             conn.execute("DELETE FROM records")
         conn.executemany(
             "INSERT INTO records"
@@ -471,17 +520,169 @@ async def admin_upload(
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
-        conn.close()
-        return RedirectResponse("/admin?error=import_failed", status_code=302)
+        raise
     finally:
         conn.close()
 
-    set_setting("col_fio",       col_fio)
-    set_setting("col_cert",      col_cert)
-    set_setting("col_app",       col_app)
-    set_setting("col_birth",     col_birth)
-    set_setting("col_stat",      col_stat)
-    set_setting("last_upload",   datetime.utcnow().isoformat(sep=" ", timespec="seconds"))
-    set_setting("last_filename", file.filename or "")
+    return len(to_insert)
 
-    return RedirectResponse(f"/admin?uploaded={len(to_insert)}", status_code=302)
+
+# ── синхронизация напрямую из API портала ПФДО ──────────────────────────────────
+PFDO_API_HOST = "https://10-248-2-162.my.local-ip.co"
+PFDO_PER_PAGE = 100
+PFDO_MAX_PAGES = 500
+PFDO_PAGE_DELAY = 0.15  # секунд между страницами — не долбить API слишком часто
+
+
+class SyncAuthError(Exception):
+    """Токен не принят порталом (401/403)."""
+
+
+async def pfdo_fetch_all(client: httpx.AsyncClient, path: str, expand: str, mun_id: str, token: str) -> list:
+    all_items = []
+    page = 1
+    while page <= PFDO_MAX_PAGES:
+        params = {
+            "page": page,
+            "per-page": PFDO_PER_PAGE,
+            "expand": expand,
+            "sort": "-id",
+            "search[mun_id]": mun_id,
+        }
+        resp = await client.get(f"{PFDO_API_HOST}{path}", params=params,
+                                 headers={"Authorization": token, "Accept": "application/json"})
+        if resp.status_code in (401, 403):
+            raise SyncAuthError()
+        resp.raise_for_status()
+
+        data = resp.json()
+        items = data if isinstance(data, list) else (data.get("items") or data.get("data") or [])
+        if not items:
+            break
+
+        all_items.extend(items)
+        if len(items) < PFDO_PER_PAGE:
+            break
+
+        page += 1
+        await asyncio.sleep(PFDO_PAGE_DELAY)
+
+    return all_items
+
+
+def pfdo_fio(rec: dict) -> str:
+    parts = [rec.get("sur_child_name"), rec.get("first_child_name"), rec.get("last_child_name")]
+    return " ".join(p.strip() for p in parts if p and str(p).strip())
+
+
+def pfdo_fmt_date(iso_str) -> str:
+    if not iso_str:
+        return ""
+    try:
+        date_part = str(iso_str).split("T")[0]
+        y, m, d = date_part.split("-")
+        return f"{d}.{m}.{y}"
+    except Exception:
+        return str(iso_str)
+
+
+def pfdo_status(is_revoked, frozen, is_confirmed) -> str:
+    if is_revoked:
+        return "Отозван"
+    if frozen:
+        return "Заморожен"
+    if is_confirmed:
+        return "Подтверждена"
+    return "Не подтверждена"
+
+
+def pfdo_merge_to_insert(certificates: list, requests_data: list) -> list:
+    """Сводит /certificates и /request в те же 7-элементные кортежи,
+    что и обычная загрузка Excel/CSV (см. admin_upload)."""
+    certs_by_id = {c["id"]: c for c in certificates if "id" in c}
+    seen_cert_ids = set()
+    now = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
+    to_insert = []
+
+    for r in requests_data:
+        cert_id = r.get("certificate_id")
+        nested_cert = r.get("certificate")
+        cert = certs_by_id.get(cert_id) or nested_cert
+
+        if cert:
+            status = pfdo_status(cert.get("is_revoked"), cert.get("frozen"), cert.get("is_confirmed"))
+            cid = cert_id if cert_id is not None else (nested_cert or {}).get("id")
+            if cid is not None:
+                seen_cert_ids.add(cid)
+        else:
+            status = "Подтверждена" if r.get("confirmed") else "Не подтверждена"
+
+        fio_val = pfdo_fio(r)
+        if not fio_val:
+            continue
+
+        to_insert.append((
+            fio_val,
+            normalize(fio_val),
+            r.get("cert_number") or (cert or {}).get("certificate") or "",
+            r.get("code") or "",
+            pfdo_fmt_date(r.get("birth_child")),
+            status,
+            now,
+        ))
+
+    for cid, cert in certs_by_id.items():
+        if cid in seen_cert_ids:
+            continue
+        fio_val = pfdo_fio(cert)
+        if not fio_val:
+            continue
+        to_insert.append((
+            fio_val,
+            normalize(fio_val),
+            cert.get("certificate") or "",
+            "",
+            pfdo_fmt_date(cert.get("birth_child")),
+            pfdo_status(cert.get("is_revoked"), cert.get("frozen"), cert.get("is_confirmed")),
+            now,
+        ))
+
+    return to_insert
+
+
+@app.post("/admin/sync-api", response_class=HTMLResponse)
+@admin_required
+async def admin_sync_api(
+    request:   Request,
+    api_token: str = Form(...),
+    mun_id:    str = Form("02"),
+    replace:   str = Form("yes"),
+):
+    token = api_token.strip()
+    if not token:
+        return RedirectResponse("/admin?error=sync_no_token", status_code=302)
+    if not token.lower().startswith("bearer "):
+        token = f"Bearer {token}"
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            certificates   = await pfdo_fetch_all(client, "/api/v1/certificates", "queues,address", mun_id, token)
+            requests_data  = await pfdo_fetch_all(client, "/api/v1/request", "queues,certificate,verification", mun_id, token)
+    except SyncAuthError:
+        return RedirectResponse("/admin?error=sync_auth", status_code=302)
+    except httpx.HTTPError:
+        return RedirectResponse("/admin?error=sync_failed", status_code=302)
+
+    to_insert = pfdo_merge_to_insert(certificates, requests_data)
+    if not to_insert:
+        return RedirectResponse("/admin?error=empty", status_code=302)
+
+    try:
+        count = replace_or_add_records(to_insert, replace == "yes")
+    except Exception:
+        return RedirectResponse("/admin?error=import_failed", status_code=302)
+
+    set_setting("last_upload",   datetime.utcnow().isoformat(sep=" ", timespec="seconds"))
+    set_setting("last_filename", f"API (mun_id={mun_id})")
+
+    return RedirectResponse(f"/admin?uploaded={count}", status_code=302)
