@@ -21,6 +21,8 @@
   --frozen: #8a6000;
   --inactive-bg: #f5f0f0;
   --inactive: #7a3030;
+  --revoked-bg: #f1f0f5;
+  --revoked: #4a4560;
   --warn-bg: #fff8e6;
   --warn: #7a5c00;
   --err-bg: #fdf0f0;
@@ -224,6 +226,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .status-badge.active   { background: var(--accent-light); color: var(--accent-mid); }
 .status-badge.frozen   { background: var(--frozen-bg);    color: var(--frozen); }
 .status-badge.inactive { background: var(--inactive-bg);  color: var(--inactive); }
+.status-badge.revoked  { background: var(--revoked-bg);   color: var(--revoked); }
 
 /* перекраска всей карточки результата, если заявка не подтверждена
    (статус отличен от "Активирован") */
@@ -237,6 +240,11 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   border-color: var(--inactive);
 }
 
+.result-box.revoked {
+  background: var(--revoked-bg);
+  border-color: var(--revoked);
+}
+
 .result-box.frozen .result-value:not(.empty) {
   color: var(--frozen);
   background: rgba(138,96,0,0.09);
@@ -245,6 +253,11 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .result-box.inactive .result-value:not(.empty) {
   color: var(--inactive);
   background: rgba(122,48,48,0.09);
+}
+
+.result-box.revoked .result-value:not(.empty) {
+  color: var(--revoked);
+  background: rgba(74,69,96,0.09);
 }
 
 .copy-hint {

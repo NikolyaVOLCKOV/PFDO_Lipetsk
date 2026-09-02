@@ -102,6 +102,8 @@ def digits_only(s: str) -> str:
 
 def status_style(status: str) -> str:
     s = (status or "").strip().lower()
+    if "отозв" in s:
+        return "revoked"
     # отрицание — в первую очередь: "Не активирован", "Не подтверждена"
     if s.startswith("не "):
         return "inactive"
