@@ -1,5 +1,6 @@
 import os, sqlite3, secrets, io, csv, re, shutil
 from pathlib import Path
+from urllib.parse import quote
 from functools import wraps
 from datetime import datetime
 
@@ -173,7 +174,7 @@ async def search(request: Request, fio: str = Form(""), birth: str = Form("")):
     try:
         with get_db() as db:
             rows = db.execute(
-                "SELECT fio, cert_number, app_number, birth_date, status "
+                "SELECT fio, fio_norm, cert_number, app_number, birth_date, status "
                 "FROM records WHERE fio_norm LIKE ?",
                 (f"%{query}%",)
             ).fetchall()
@@ -187,11 +188,17 @@ async def search(request: Request, fio: str = Form(""), birth: str = Form("")):
         rows = [r for r in rows if digits_only(r["birth_date"]) == birth_digits]
 
     count = len(rows)
+    # несколько сертификатов ОДНОГО ребёнка (совпадает нормализованное ФИО) —
+    # это не "неоднозначно", а несколько записей, которые нужно показать все разом.
+    distinct_people = {r["fio_norm"] for r in rows}
+    same_person = count > 0 and len(distinct_people) == 1
 
     if count == 0:
         result_type = "not_found"
     elif count == 1:
         result_type = "found"
+    elif same_person:
+        result_type = "found_multi"
     else:
         result_type = "ambiguous"
 
@@ -209,18 +216,22 @@ async def search(request: Request, fio: str = Form(""), birth: str = Form("")):
     if count == 0:
         return JSONResponse({"type": "not_found"})
 
-    if count > 1:
+    if result_type == "ambiguous":
         return JSONResponse({"type": "ambiguous", "count": count})
 
-    r = rows[0]
-    return JSONResponse({
-        "type":         "found",
-        "cert":         r["cert_number"] or "—",
-        "app":          r["app_number"]  or "—",
-        "birth":        r["birth_date"]  or "—",
-        "status":       r["status"]      or "Не активирован",
-        "status_style": status_style(r["status"] or ""),
-    })
+    def to_item(r):
+        return {
+            "cert":         r["cert_number"] or "—",
+            "app":          r["app_number"]  or "—",
+            "birth":        r["birth_date"]  or "—",
+            "status":       r["status"]      or "Не активирован",
+            "status_style": status_style(r["status"] or ""),
+        }
+
+    if result_type == "found_multi":
+        return JSONResponse({"type": "found_multi", "items": [to_item(r) for r in rows]})
+
+    return JSONResponse({"type": "found", **to_item(rows[0])})
 
 # ── авторизация админа ────────────────────────────────────────────────────────
 @app.get("/admin/login", response_class=HTMLResponse)
@@ -391,8 +402,25 @@ async def admin_upload(
     idx_birth = col_index(col_birth)
     idx_stat  = col_index(col_stat)
 
+    # если админ что-то ВПИСАЛ в поле колонки, а такой колонки в файле нет —
+    # это почти наверняка опечатка, а не "поле осталось пустым специально".
+    # Раньше это тихо приводило к тому, что весь столбец (например статус)
+    # заполнялся дефолтным значением для ВСЕХ записей без предупреждения.
+    not_found = []
     if idx_fio is None:
-        return RedirectResponse("/admin?error=col_fio_not_found", status_code=302)
+        not_found.append("ФИО")
+    if col_cert.strip() and idx_cert is None:
+        not_found.append("Номер сертификата")
+    if col_app.strip() and idx_app is None:
+        not_found.append("Номер заявки")
+    if col_birth.strip() and idx_birth is None:
+        not_found.append("Дата рождения")
+    if col_stat.strip() and idx_stat is None:
+        not_found.append("Статус")
+
+    if not_found:
+        cols_param = quote(", ".join(not_found))
+        return RedirectResponse(f"/admin?error=col_not_found&cols={cols_param}", status_code=302)
 
     def cell(row, idx):
         if idx is None or idx >= len(row):

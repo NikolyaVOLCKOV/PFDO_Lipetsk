@@ -404,8 +404,10 @@
         <div class="flash ok">✓ Загружено записей: {{ uploaded }}</div>
         {% endif %}
 
-        {% if error == 'col_fio_not_found' %}
-        <div class="flash err">Столбец ФИО не найден в файле. Проверьте название.</div>
+        {% if error == 'col_fio_not_found' or error == 'col_not_found' %}
+        <div class="flash err">
+            Столбец «{{ request.query_params.get('cols', 'ФИО') }}» не найден в файле — проверьте точное название заголовка (с учётом пробелов). Загрузка отменена, база не изменена.
+        </div>
         {% elif error == 'empty' %}
         <div class="flash err">Файл пустой или не содержит данных.</div>
         {% elif error == 'read_error' %}

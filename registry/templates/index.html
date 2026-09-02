@@ -369,15 +369,40 @@ async function doSearch() {
       return;
     }
 
+    if (data.type === 'found_multi') {
+      const heading = document.createElement('p');
+      heading.className = 'hint';
+      heading.style.marginBottom = '0.5rem';
+      heading.textContent = `Найдено сертификатов: ${data.items.length}`;
+      resultArea.appendChild(heading);
+      data.items.forEach(item => resultArea.appendChild(renderCard(item)));
+      return;
+    }
+
     // type === 'found' — показываем только данные, без ФИО
+    resultArea.appendChild(renderCard(data));
+
+  } catch {
+    showMsg('error',
+      'Ошибка соединения',
+      'Не удалось связаться с сервером. Попробуйте позже или обратитесь к администратору.'
+    );
+  } finally {
+    btn.disabled = false;
+    btnText.style.display = '';
+    spinner.style.display = 'none';
+  }
+}
+
+function renderCard(data) {
     const certEmpty = data.cert === '—';
     const appEmpty  = data.app  === '—';
-
     const birthEmpty = !data.birth || data.birth === '—';
 
     const box = document.createElement('div');
     // если заявка не подтверждена (статус не "Активирован") — перекрашиваем всю карточку
     box.className = `result-box ${esc(data.status_style)}`;
+    box.style.marginBottom = '1rem';
     box.innerHTML = `
       <div class="result-label">Номер сертификата</div>
       <div style="margin-bottom:1rem">
@@ -410,18 +435,7 @@ async function doSearch() {
         ? '<p class="copy-hint">Нажмите на номер, чтобы скопировать</p>'
         : ''}
     `;
-    resultArea.appendChild(box);
-
-  } catch {
-    showMsg('error',
-      'Ошибка соединения',
-      'Не удалось связаться с сервером. Попробуйте позже или обратитесь к администратору.'
-    );
-  } finally {
-    btn.disabled = false;
-    btnText.style.display = '';
-    spinner.style.display = 'none';
-  }
+    return box;
 }
 
 function copyVal(el, val) {
